@@ -27,6 +27,11 @@ class GitOptions:
     branch: Optional[str]
 
 
+@dataclass
+class FolderOptions:
+    pattern: Optional[str] = "*"
+
+
 class IssueType(enum.Enum):
     Entropy = "High Entropy"
     RegEx = "Regular Expression Match"
