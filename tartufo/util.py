@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import itertools
 import json
 import os
 import pathlib
@@ -51,21 +52,33 @@ def echo_issues(
     as_json: bool,
     repo_path: str,
     output_dir: Optional[pathlib.Path],
+    as_compact: bool = False,
 ) -> None:
     """Print all found issues out to the console, optionally as JSON.
 
     :param issues: The list of issues to be printed out
     :param as_json: Whether the output should be formatted as JSON
+    :param as_compact: Whether the output should be abbreviated.
     :param repo_path: The path to the repository the issues were found in
     :param output_dir: The directory that issue details were written out to
     """
     if as_json:
         output = {
             "project_path": repo_path,
-            "output_dir": str(output_dir) if output_dir else None,
-            "found_issues": [issue.as_dict() for issue in issues],
+            "output_dir": str(output_dir) if output_dir else None
         }
+
+        if as_compact:
+            output["found_issues"] = [issue.as_compact_dict() for issue in issues]
+        else:
+            output["found_issues"] = [issue.as_dict() for issue in issues]
+
         click.echo(json.dumps(output))
+    elif as_compact:
+        for issue in issues:
+            click.echo(
+                f"[{issue.issue_type.value}] {issue.chunk.file_path}@L{issue.chunk_line}: {issue.matched_string} "
+                f"({issue.signature}, {issue.issue_detail})")
     else:
         for issue in issues:
             click.echo(issue)

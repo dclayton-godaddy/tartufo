@@ -24,8 +24,16 @@ def main(
     folder_options = types.FolderOptions(pattern=pattern,)
     issues: List[Issue] = []
     try:
-        scanner = FolderScanner(options, folder_options, folder_path)
+        if options.interactive:
+            scanner = FolderScanner(options, folder_options, folder_path, interactive_fn=interactive_fn)
+        else:
+            scanner = FolderScanner(options, folder_options, folder_path)
         issues = scanner.scan()
     except types.TartufoException as exc:
         util.fail(str(exc), ctx)
     return str(folder_path), issues
+
+
+def interactive_fn(issue: Issue):
+    click.echo(issue)
+    return click.prompt("Ignore (F=file, S=signature, N=no)? ", type=click.Choice(["F", "S", "N"], case_sensitive=False))

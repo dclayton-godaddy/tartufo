@@ -42,12 +42,25 @@ class TartufoCLI(click.MultiCommand):
     help="Path(s) to regex rules json list file(s).",
 )
 @click.option(
+    "--ignore-rules",
+    multiple=True,
+    type=click.File("r"),
+    help="Path(s) to regex ignore rules json list file(s).",
+)
+@click.option(
     "--default-regexes/--no-default-regexes",
     is_flag=True,
     default=True,
     show_default=True,
     help="Whether to include the default regex list when configuring"
     " search patterns. Only applicable if --rules is also specified.",
+)
+@click.option(
+    "--interactive/--no-interactive",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Enable entropy checks.",
 )
 @click.option(
     "--entropy/--no-entropy",
@@ -62,6 +75,11 @@ class TartufoCLI(click.MultiCommand):
     default=False,
     show_default=True,
     help="Enable high signal regexes checks.",
+)
+@click.option(
+    "--ignore-paths",
+    type=click.File("r"),
+    help="File containing gitignore like filters to ignore files.",
 )
 @click.option(
     "-i",
@@ -122,6 +140,19 @@ class TartufoCLI(click.MultiCommand):
     "for files from which to load the regex rules. Can be specified multiple times.",
 )
 @click.option(
+    "--git-ignore-rules-files",
+    multiple=True,
+    help="Used in conjunction with --git-rules-repo, specify glob-style patterns "
+    "for files from which to load the ignore regex rules. Can be specified multiple times.",
+)
+@click.option(
+    "--compact/--no-compact",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help="Display compact or detailed output.",
+)
+@click.option(
     "--config",
     type=click.Path(
         exists=True,
@@ -166,7 +197,7 @@ def process_issues(
         output_dir.mkdir(parents=True)
 
     if issues:
-        util.echo_issues(issues, options.json, repo_path, output_dir)
+        util.echo_issues(issues, options.json, repo_path, output_dir, as_compact=options.compact)
         if output_dir:
             util.write_outputs(issues, output_dir)
             if not options.json:

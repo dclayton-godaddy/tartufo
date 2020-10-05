@@ -5,6 +5,7 @@ import hashlib
 import math
 import pathlib
 import re
+from fnmatch import fnmatch
 from functools import lru_cache
 from typing import (
     Any,
@@ -19,6 +20,8 @@ from typing import (
 )
 
 import git
+from pathspec import PathSpec
+from pathspec.patterns import GitWildMatchPattern
 
 from tartufo import config, types, util
 from tartufo.types import Rule
@@ -33,12 +36,13 @@ class Issue:
     OUTPUT_SEPARATOR: str = "~~~~~~~~~~~~~~~~~~~~~"
 
     chunk: types.Chunk
+    chunk_line: int = 0
     issue_type: types.IssueType
     issue_detail: Optional[str] = None
     matched_string: str = ""
 
     def __init__(
-        self, issue_type: types.IssueType, matched_string: str, chunk: types.Chunk
+        self, issue_type: types.IssueType, matched_string: str, chunk: types.Chunk, chunk_line: int = 0
     ) -> None:
         """
         :param issue_type: What type of scan identified this issue
@@ -48,6 +52,22 @@ class Issue:
         self.issue_type = issue_type
         self.matched_string = matched_string
         self.chunk = chunk
+        self.chunk_line = chunk_line
+
+    def as_compact_dict(self) -> Dict[str, Optional[str]]:
+        """Return a compact dictionary representation of an issue.
+
+        This is primarily meant to aid in JSON serialization with fewer fields.
+
+        :return: A compact JSON serializable dictionary representation of this issue
+        """
+        return {
+            "file_path": str(self.chunk.file_path),
+            "matched_string": self.matched_string,
+            "signature": self.signature,
+            "issue_type": self.issue_type.value,
+            "issue_detail": self.issue_detail,
+        }
 
     def as_dict(self) -> Dict[str, Optional[str]]:
         """Return a dictionary representation of an issue.
@@ -76,7 +96,19 @@ class Issue:
 
     def __str__(self) -> str:
         output = []
-        diff_body = self.chunk.contents
+        diff_body = ''
+        diff_body_lines = self.chunk.contents.split('\n')
+        line_idx = 0
+        for line in diff_body_lines:
+            if self.matched_string in line:
+                if line_idx > 3:
+                    diff_body = '...\n'
+                diff_body += '\n'.join(diff_body_lines[line_idx-3:line_idx+3])
+                if len(diff_body_lines) > (line_idx+3):
+                    diff_body += '\n...'
+                break
+            line_idx += 1
+
         diff_body = diff_body.replace(
             self.matched_string, util.style_warning(self.matched_string)
         )
@@ -108,13 +140,17 @@ class ScannerBase(abc.ABC):
     """
 
     _issues: Optional[List[Issue]] = None
+    _ignore_paths: Optional[PathSpec] = None
     _included_paths: Optional[List[Pattern]] = None
     _excluded_paths: Optional[List[Pattern]] = None
     _rules_regexes: Optional[Dict[str, Rule]] = None
+    _ignore_rules_regexes: Optional[Dict[str, Pattern]] = None
+    _interactive_fn: Callable = None
     global_options: types.GlobalOptions
 
-    def __init__(self, options: types.GlobalOptions) -> None:
+    def __init__(self, options: types.GlobalOptions, interactive_fn: Callable = None) -> None:
         self.global_options = options
+        self._interactive_fn = interactive_fn
 
     @property
     def issues(self) -> List[Issue]:
@@ -130,7 +166,7 @@ class ScannerBase(abc.ABC):
         return self._issues
 
     @property
-    def included_paths(self) -> List[Pattern]:
+    def included_paths(self) -> List[str]:
         """Get a list of regexes used as an exclusive list of paths to scan.
 
         :rtype: List[Pattern]
@@ -146,7 +182,7 @@ class ScannerBase(abc.ABC):
         return self._included_paths
 
     @property
-    def excluded_paths(self) -> List[Pattern]:
+    def excluded_paths(self) -> List[str]:
         """Get a list of regexes used to match paths to exclude from the scan.
 
         :rtype: List[Pattern]
@@ -160,6 +196,22 @@ class ScannerBase(abc.ABC):
             else:
                 self._excluded_paths = []
         return self._excluded_paths
+
+    @property
+    def ignore_paths(self) -> PathSpec:
+        """Get a list of regexes used to match paths to exclude from the scan.
+
+        :rtype: List[Pattern]
+        """
+        if self._ignore_paths is None:
+            if self.global_options.ignore_paths:
+                self._ignore_paths = PathSpec.from_lines(
+                    GitWildMatchPattern,
+                    self.global_options.ignore_paths.readlines()
+                )
+            else:
+                self._ignore_paths = []
+        return self._ignore_paths
 
     @property
     def rules_regexes(self) -> Dict[str, Rule]:
@@ -180,6 +232,25 @@ class ScannerBase(abc.ABC):
                 raise types.ConfigException(str(exc)) from exc
         return self._rules_regexes
 
+    @property
+    def ignore_rules_regexes(self) -> Dict[str, Pattern]:
+        """Get a dictionary of regular expressions to scan the code for.
+
+        :raises types.TartufoConfigException: If there was a problem compiling the rules
+        :rtype: Dict[str, Pattern]
+        """
+        if self._ignore_rules_regexes is None:
+            try:
+                self._ignore_rules_regexes = config.configure_regexes(
+                    False,
+                    self.global_options.ignore_rules,
+                    self.global_options.git_rules_repo,
+                    self.global_options.git_ignore_rules_files,
+                )
+            except (ValueError, re.error) as exc:
+                raise types.ConfigException(str(exc)) from exc
+        return self._ignore_rules_regexes
+
     @lru_cache()
     def should_scan(self, file_path: str):
         """Check if the a file path should be included in analysis.
@@ -197,11 +268,19 @@ class ScannerBase(abc.ABC):
             (when non-empty) or if it is matched by `self.excluded_paths` (when
             non-empty), otherwise returns True
         """
+
         if self.included_paths and not any(
-            p.match(file_path) for p in self.included_paths
+            fnmatch(file_path, p) for p in self.included_paths
         ):
             return False
-        if self.excluded_paths and any(p.match(file_path) for p in self.excluded_paths):
+
+        if self.ignore_paths and self.ignore_paths.match_file(file_path):
+            return False
+
+        spec = PathSpec(patterns=self.excluded_paths)
+        if self.excluded_paths and any(
+            fnmatch(file_path, p) for p in self.excluded_paths
+        ):
             return False
         return True
 
@@ -255,14 +334,20 @@ class ScannerBase(abc.ABC):
         if self.global_options.regex and not self.rules_regexes:
             raise types.ConfigException("Regex checks requested, but no regexes found.")
 
+        self._issues = []
+
         for chunk in self.chunks:
             # Run regex scans first to trigger a potential fast fail for bad config
             if self.global_options.regex and self.rules_regexes:
-                issues += self.scan_regex(chunk)
+                issues = self.scan_regex(chunk)
+            else:
+                issues = []
             if self.global_options.entropy:
                 issues += self.scan_entropy(chunk)
-        self._issues = issues
-        return issues
+
+            self._issues += issues
+
+            yield from issues
 
     def scan_entropy(self, chunk: types.Chunk) -> List[Issue]:
         """Scan a chunk of data for apparent high entropy.
@@ -270,23 +355,51 @@ class ScannerBase(abc.ABC):
         :param chunk: The chunk of data to be scanned
         """
         issues: List[Issue] = []
+        chunk_line = 0
         for line in chunk.contents.split("\n"):
+            chunk_line += 1
+            if self.match_is_excluded(line, chunk):
+                continue
             for word in line.split():
                 b64_strings = util.get_strings_of_set(word, BASE64_CHARS)
                 hex_strings = util.get_strings_of_set(word, HEX_CHARS)
 
                 for string in b64_strings:
-                    if not self.signature_is_excluded(string, chunk.file_path):
+                    if not self.match_is_excluded(string, chunk):
                         b64_entropy = self.calculate_entropy(string, BASE64_CHARS)
                         if b64_entropy > 4.5:
-                            issues.append(Issue(types.IssueType.Entropy, string, chunk))
+                            self.interact(
+                                Issue(types.IssueType.Entropy, string, chunk, chunk_line=chunk_line),
+                                issues
+                            )
 
                 for string in hex_strings:
-                    if not self.signature_is_excluded(string, chunk.file_path):
+                    if not self.match_is_excluded(string, chunk):
                         hex_entropy = self.calculate_entropy(string, HEX_CHARS)
                         if hex_entropy > 3:
-                            issues.append(Issue(types.IssueType.Entropy, string, chunk))
+                            self.interact(
+                                Issue(types.IssueType.Entropy, string, chunk, chunk_line=chunk_line),
+                                issues
+                            )
         return issues
+
+    def interact(self, issue, issues):
+        if self._interactive_fn:
+            print(self._interactive_fn(issue))
+        issues.append(issue)
+        return issue
+
+    def match_is_excluded(self, match: str, chunk: types.Chunk):
+        # Filter out any explicitly "allowed" match signatures
+        if self.signature_is_excluded(match, chunk.file_path):
+            return True
+
+        for key, pattern in self.ignore_rules_regexes.items():
+            found_strings = pattern.findall(match)
+            if found_strings:
+                return True
+
+        return False
 
     def scan_regex(self, chunk: types.Chunk) -> List[Issue]:
         """Scan a chunk of data for matches against the configured regexes.
@@ -533,6 +646,7 @@ class FolderScanner(ScannerBase):
         global_options: types.GlobalOptions,
         folder_options: types.FolderOptions,
         folder_path: str,
+        interactive_fn: Callable = None
     ) -> None:
         """Used for scanning a folder.
 
@@ -542,7 +656,7 @@ class FolderScanner(ScannerBase):
         """
         self.folder_options = folder_options
         self.folder_path = folder_path
-        super().__init__(global_options)
+        super().__init__(global_options, interactive_fn=interactive_fn)
 
     @property
     def chunks(self):
@@ -568,4 +682,4 @@ class FolderScanner(ScannerBase):
                     # binary file, continue
                     continue
 
-                yield blob, str(file_path)
+                yield blob, str(file_path.relative_to(self.folder_path))

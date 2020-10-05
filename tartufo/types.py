@@ -8,16 +8,21 @@ from typing import Any, Dict, Optional, TextIO, Tuple, Pattern
 class GlobalOptions:
     json: bool
     rules: Tuple[TextIO, ...]
+    ignore_rules: Tuple[TextIO, ...]
+    ignore_paths: Optional[TextIO]
     default_regexes: bool
     entropy: bool
     regex: bool
+    interactive: bool
     include_paths: Optional[TextIO]
     exclude_paths: Optional[TextIO]
     exclude_signatures: Tuple[str, ...]
     output_dir: Optional[str]
     git_rules_repo: Optional[str]
     git_rules_files: Tuple[str, ...]
+    git_ignore_rules_files: Tuple[str, ...]
     config: Optional[TextIO]
+    compact: bool = False
 
 
 @dataclass

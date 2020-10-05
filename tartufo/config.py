@@ -226,7 +226,7 @@ def load_rules_from_file(rules_file: TextIO) -> Dict[str, Rule]:
     return rules
 
 
-def compile_path_rules(patterns: Iterable[str]) -> List[Pattern]:
+def compile_path_rules(patterns: Iterable[str]) -> List[str]:
     """Take a list of regex strings and compile them into patterns.
 
     Any line starting with `#` will be ignored.
@@ -234,7 +234,7 @@ def compile_path_rules(patterns: Iterable[str]) -> List[Pattern]:
     :param patterns: The list of patterns to be compiled
     """
     return [
-        re.compile(pattern.strip())
+        pattern.strip()
         for pattern in patterns
         if pattern and not pattern.startswith("#")
     ]
