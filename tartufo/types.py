@@ -6,35 +6,35 @@ from typing import Any, Dict, Optional, TextIO, Tuple, Pattern
 
 @dataclass
 class GlobalOptions:
-    json: bool
-    rules: Tuple[TextIO, ...]
-    ignore_rules: Tuple[TextIO, ...]
-    ignore_paths: Optional[TextIO]
-    default_regexes: bool
-    entropy: bool
-    regex: bool
-    interactive: bool
-    include_paths: Optional[TextIO]
-    exclude_paths: Optional[TextIO]
-    exclude_signatures: Tuple[str, ...]
-    output_dir: Optional[str]
-    git_rules_repo: Optional[str]
-    git_rules_files: Tuple[str, ...]
-    git_ignore_rules_files: Tuple[str, ...]
-    config: Optional[TextIO]
+    json: bool = False
+    rules: Tuple[TextIO, ...] = ()
+    ignore_rules: Tuple[TextIO, ...] = ()
+    ignore_paths: Optional[TextIO] = ()
+    default_regexes: bool = True
+    entropy: bool = True
+    regex: bool = True
+    interactive: bool = False
+    include_paths: Optional[TextIO] = None
+    exclude_paths: Optional[TextIO] = None
+    exclude_signatures: Tuple[str, ...] = ()
+    output_dir: Optional[str] = None
+    git_rules_repo: Optional[str] = None
+    git_rules_files: Tuple[str, ...] = None
+    git_ignore_rules_files: Tuple[str, ...] = ()
+    config: Optional[TextIO] = None
     compact: bool = False
 
 
 @dataclass
 class GitOptions:
-    since_commit: Optional[str]
-    max_depth: int
-    branch: Optional[str]
+    since_commit: Optional[str] = None
+    max_depth: int = 9999
+    branch: Optional[str] = None
 
 
 @dataclass
 class FolderOptions:
-    pattern: Optional[str] = "*"
+    pattern: Optional[str] = "**/*"
 
 
 class IssueType(enum.Enum):
