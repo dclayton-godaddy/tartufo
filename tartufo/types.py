@@ -54,6 +54,8 @@ class Rule:
     name: Optional[str]
     pattern: Pattern
     path_pattern: Optional[Pattern]
+    ignore: Optional[bool] = False
+    signature: Optional[str] = None
 
 
 class TartufoException(Exception):

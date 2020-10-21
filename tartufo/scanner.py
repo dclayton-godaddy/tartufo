@@ -16,7 +16,7 @@ from typing import (
     Optional,
     Pattern,
     Set,
-    Tuple,
+    Tuple, Callable,
 )
 
 import git
@@ -355,6 +355,10 @@ class ScannerBase(abc.ABC):
         :param chunk: The chunk of data to be scanned
         """
         issues: List[Issue] = []
+
+        if self.path_is_excluded(chunk):
+            return issues
+
         chunk_line = 0
         for line in chunk.contents.split("\n"):
             chunk_line += 1
@@ -390,15 +394,24 @@ class ScannerBase(abc.ABC):
         return issue
 
     def match_is_excluded(self, match: str, chunk: types.Chunk):
-        # Filter out any explicitly "allowed" match signatures
-        if self.signature_is_excluded(match, chunk.file_path):
-            return True
+        signature = util.generate_signature(match, chunk.file_path)
+        for key, rule in self.rules_regexes.items():
+            if rule.ignore:
+                if rule.pattern:
+                    if rule.pattern.findall(match):
+                        return True
+                if rule.signature:
+                    if rule.signature == signature:
+                        return True
 
-        for key, pattern in self.ignore_rules_regexes.items():
-            found_strings = pattern.findall(match)
-            if found_strings:
-                return True
+        return False
 
+    def path_is_excluded(self, chunk: types.Chunk):
+        for key, rule in self.rules_regexes.items():
+            if rule.ignore:
+                if rule.path_pattern:
+                    if rule.path_pattern.findall(chunk.file_path):
+                        return True
         return False
 
     def scan_regex(self, chunk: types.Chunk) -> List[Issue]:
@@ -407,15 +420,20 @@ class ScannerBase(abc.ABC):
         :param chunk: The chunk of data to be scanned
         """
         issues: List[Issue] = []
+
+        if self.path_is_excluded(chunk):
+            return issues
+
         for key, rule in self.rules_regexes.items():
-            if rule.path_pattern is None or rule.path_pattern.match(chunk.file_path):
+            if rule.ignore is False and rule.pattern:
                 found_strings = rule.pattern.findall(chunk.contents)
                 for match in found_strings:
-                    # Filter out any explicitly "allowed" match signatures
-                    if not self.signature_is_excluded(match, chunk.file_path):
-                        issue = Issue(types.IssueType.RegEx, match, chunk)
-                        issue.issue_detail = key
-                        issues.append(issue)
+                    if self.match_is_excluded(match, chunk):
+                        continue
+
+                    issue = Issue(types.IssueType.RegEx, match, chunk)
+                    issue.issue_detail = key
+                    issues.append(issue)
         return issues
 
     @property

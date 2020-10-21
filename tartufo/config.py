@@ -176,12 +176,13 @@ def configure_regexes(
             repo_path = pathlib.Path(rules_repo)
             if not repo_path.is_dir():
                 repo_path = pathlib.Path(util.clone_git_repo(rules_repo))
+                cloned_repo = True
             if not rules_repo_files:
                 rules_repo_files = ("*.json",)
             for repo_file in rules_repo_files:
                 all_files.extend([path.open("r") for path in repo_path.glob(repo_file)])
-        if rules_files:
-            for rules_file in rules_files:
+        if all_files:
+            for rules_file in all_files:
                 loaded = load_rules_from_file(rules_file)
                 dupes = set(loaded.keys()).intersection(rules.keys())
                 if dupes:
@@ -212,15 +213,18 @@ def load_rules_from_file(rules_file: TextIO) -> Dict[str, Rule]:
     for rule_name in new_rules:
         rule_definition = new_rules[rule_name]
         if isinstance(rule_definition, collections.Mapping):
+            pattern = rule_definition.get("pattern", None)
             path_pattern = rule_definition.get("path_pattern", None)
             rule = Rule(
                 name=rule_name,
-                pattern=re.compile(rule_definition["pattern"]),
+                pattern=re.compile(pattern) if pattern else None,
                 path_pattern=re.compile(path_pattern) if path_pattern else None,
+                signature=rule_definition.get("signature"),
+                ignore=rule_definition.get("ignore", False)
             )
         else:
             rule = Rule(
-                name=rule_name, pattern=re.compile(rule_definition), path_pattern=None
+                name=rule_name, pattern=re.compile(rule_definition), path_pattern=None, ignore=False, signature=None
             )
         rules[rule_name] = rule
     return rules
